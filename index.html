@@ -115,13 +115,23 @@ button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);bor
             <label for="muBand" class="mono">Faixa</label>
             <select id="muBand" style="width:auto"></select>
           </div>
-          <canvas id="muCv" width="1360" height="300" aria-label="Espectrograma da música com a frequência dominante"></canvas>
-          <p class="cap" id="muInfo">Passe o mouse sobre o gráfico para ver a frequência dominante em cada instante. Clique para levar a música e a placa até lá.</p>
+          <div class="murow">
+            <button id="muZoomOut" aria-label="Diminuir zoom">− zoom</button>
+            <button id="muZoomIn" aria-label="Aumentar zoom">+ zoom</button>
+            <button id="muZoomAll">Ver tudo</button>
+            <label for="muPrec" class="mono">Precisão</label>
+            <select id="muPrec" style="width:auto"><option value="2048">No tempo (notas rápidas)</option><option value="4096" selected>Equilibrada</option><option value="16384">Na frequência (notas longas)</option></select>
+            <span class="mono" id="muZoomInfo">música inteira</span>
+          </div>
+          <canvas id="muCv" width="1360" height="460" aria-label="Espectrograma da música com a frequência dominante"></canvas>
+          <input id="muPan" type="range" min="0" max="1000" value="0" disabled aria-label="Posição do trecho visível na música">
+          <p class="cap" id="muInfo">Passe o mouse sobre o gráfico para ver a frequência dominante em cada instante.</p>
+          <p class="cap">Roda do mouse ou botões: zoom no tempo. Faixa: zoom na frequência. Clique: leva a música e a placa para a dominante daquele instante. Shift+clique: usa a frequência sob o cursor.</p>
           <p class="hint">Frequências principais da música (clique para ver a figura):</p>
           <div class="btns" id="muTop"></div>
           <div class="btns">
             <button id="muGenTop">Gerar imagens das frequências principais</button>
-            <button id="muGenTime">Gerar 12 imagens ao longo da música</button>
+            <button id="muGenTime">Gerar 12 imagens ao longo do trecho visível</button>
             <button id="muSaveNow" hidden>Salvar a figura atual (PNG)</button>
           </div>
           <div id="muGallery"></div>
@@ -132,7 +142,7 @@ button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);bor
     <div class="panel">
       <section>
         <h2>Frequência</h2>
-        <div class="freqrow"><input id="freq" type="number" min="100" max="7000" step="1" value="2041" inputmode="decimal" aria-label="Frequência em hertz"><span class="unit">Hz</span></div>
+        <div class="freqrow"><input id="freq" type="number" min="100" max="7000" step="0.1" value="2041" inputmode="decimal" aria-label="Frequência em hertz"><span class="unit">Hz</span></div>
         <input id="freqRange" type="range" min="100" max="7000" step="1" value="2041" aria-label="Frequência">
         <div class="btns">
           <button data-nudge="-10">−10</button><button data-nudge="-1">−1</button><button data-nudge="1">+1</button><button data-nudge="10">+10</button>
@@ -634,26 +644,79 @@ $('material').addEventListener('change', () => { const m = MATERIALS[$('material
 ['side','thick','E','rho','nu','eta','eps','offx','offy'].forEach(id => $(id).addEventListener('change', () => { if (['E','rho','nu'].includes(id)){ const m = MATERIALS[$('material').value]; if (!m || m.E!==num('E') || m.rho!==num('rho') || m.nu!==num('nu')) $('material').value = 'custom'; } scheduleResolve(); }));
 
 // ---------- música ----------
-const NF = 4096, LOGN = 12, MF0 = 100, MF1 = 7000, NROW = 110;
+const MF0 = 100, MF1 = 7000, NROW = 150;
 const BANDS = [['Tudo (100–7000 Hz)',100,7000],['Graves (100–500 Hz)',100,500],['Médios (500–2000 Hz)',500,2000],['Agudos (2000–7000 Hz)',2000,7000]];
-const mu = { ctx:null, buf:null, src:null, playing:false, t0:0, off:0, dur:0, nF:0, dom:[], lev:[], maxLev:[], base:null, band:0, hover:null, lastF:0, top:[], job:0 };
-const fftRev = new Uint16Array(NF), fftC = new Float64Array(NF/2), fftS = new Float64Array(NF/2), hann = new Float32Array(NF);
-for (let i=0;i<NF;i++){ let r=0; for (let b=0;b<LOGN;b++) r |= ((i>>b)&1) << (LOGN-1-b); fftRev[i]=r; hann[i]=0.5-0.5*Math.cos(2*Math.PI*i/(NF-1)); }
-for (let k=0;k<NF/2;k++){ fftC[k]=Math.cos(2*Math.PI*k/NF); fftS[k]=Math.sin(2*Math.PI*k/NF); }
-function fft(re, im){
-  for (let i=0;i<NF;i++){ const j=fftRev[i]; if (j>i){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
-  for (let size=2; size<=NF; size<<=1){
-    const half=size>>1, step=NF/size;
-    for (let i=0;i<NF;i+=size) for (let j=0,k=0;j<half;j++,k+=step){
-      const a=i+j, b=a+half, xr=re[b], xi=im[b], tr=xr*fftC[k]+xi*fftS[k], ti=xi*fftC[k]-xr*fftS[k];
+const NOTES = ['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
+const mu = { ctx:null, buf:null, mono:null, sr:0, src:null, playing:false, t0:0, off:0, dur:0, g:null, v:null, maxLev:[], specMax:1, band:0, vt0:0, vt1:0, hover:null, lastF:0, top:[], job:0, vjob:0, vtimer:0 };
+const plans = {};
+function plan(N){
+  if (plans[N]) return plans[N];
+  const L = Math.round(Math.log2(N)), rev = new Uint32Array(N), c = new Float64Array(N/2), s = new Float64Array(N/2), w = new Float32Array(N);
+  for (let i=0;i<N;i++){ let r=0; for (let b=0;b<L;b++) r |= ((i>>b)&1) << (L-1-b); rev[i]=r; w[i]=0.5-0.5*Math.cos(2*Math.PI*i/(N-1)); }
+  for (let k=0;k<N/2;k++){ c[k]=Math.cos(2*Math.PI*k/N); s[k]=Math.sin(2*Math.PI*k/N); }
+  return (plans[N] = { N, rev, c, s, w });
+}
+function fft(re, im, P){
+  const N = P.N, rev = P.rev, C = P.c, S = P.s;
+  for (let i=0;i<N;i++){ const j=rev[i]; if (j>i){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+  for (let size=2; size<=N; size<<=1){
+    const half=size>>1, step=N/size;
+    for (let i=0;i<N;i+=size) for (let j=0,k=0;j<half;j++,k+=step){
+      const a=i+j, b=a+half, xr=re[b], xi=im[b], tr=xr*C[k]+xi*S[k], ti=xi*C[k]-xr*S[k];
       re[b]=re[a]-tr; im[b]=im[a]-ti; re[a]+=tr; im[a]+=ti;
     }
   }
 }
-const fmtT = t => { const m=Math.floor(t/60), s=t-60*m; return m+':'+(s<10?'0':'')+s.toFixed(1).replace('.',','); };
-const fmtF = f => Math.round(f)+' Hz';
-const muY = (f,H) => H*(1-Math.log(f/MF0)/Math.log(MF1/MF0));
+const fmtT = (t, fine) => { const m=Math.floor(t/60), s=t-60*m; return m+':'+(s<10?'0':'')+s.toFixed(fine?2:1).replace('.',','); };
+const fmtF = f => f.toFixed(1).replace('.',',')+' Hz';
+const noteOf = f => { const n = Math.round(12*Math.log2(f/440))+69; return NOTES[((n%12)+12)%12]+(Math.floor(n/12)-1); };
+const fmtFN = f => fmtF(f)+' ('+noteOf(f)+')';
+const r10 = f => Math.round(f*10)/10;
 
+// Transformada de Fourier em janelas, de tA a tB. Devolve a dominante de cada faixa e o espectrograma entre fLo e fHi.
+function stft(o, stale, progress, done){
+  const mono = mu.mono, n = mono.length, sr = mu.sr, N = o.N, P = plan(N), nF = o.nF, sc = 4096/N;
+  const kTop = Math.min(N/2-2, Math.floor(MF1*N/sr));
+  const bandK = BANDS.map(([,a,b]) => [Math.max(2, Math.ceil(a*N/sr)), Math.min(kTop, Math.floor(b*N/sr))]);
+  const rows = []; for (let r=0;r<NROW;r++){ rows.push([o.fLo*Math.pow(o.fHi/o.fLo, r/NROW)*N/sr, o.fLo*Math.pow(o.fHi/o.fLo, (r+1)/NROW)*N/sr]); }
+  const dom = BANDS.map(() => new Float32Array(nF)), lev = BANDS.map(() => new Float32Array(nF)), spec = new Float32Array(nF*NROW);
+  const re = new Float64Array(N), im = new Float64Array(N), mag = new Float32Array(N/2+1), per = Math.max(4, Math.round(60*4096/N));
+  let i = 0;
+  (function chunk(){
+    if (stale()) return;
+    const end = Math.min(nF, i+per);
+    for (; i<end; i++){
+      const start = Math.round((o.tA + (i+0.5)*(o.tB-o.tA)/nF)*sr) - N/2;
+      for (let j=0;j<N;j++){ const q = start+j; re[j] = (q>=0 && q<n) ? mono[q]*P.w[j] : 0; im[j] = 0; }
+      fft(re, im, P);
+      for (let k=1;k<=kTop+1;k++) mag[k] = Math.sqrt(re[k]*re[k]+im[k]*im[k])*sc;
+      for (let b=0;b<BANDS.length;b++){
+        let best = bandK[b][0], bv = -1;
+        for (let k=bandK[b][0]; k<=bandK[b][1]; k++) if (mag[k]>bv){ bv = mag[k]; best = k; }
+        let d = 0; const a = mag[best-1], c = mag[best+1];
+        if (bv>0 && a>0 && c>0){ const la=Math.log(a), lb=Math.log(bv), lc=Math.log(c), den=la-2*lb+lc; if (den<0) d = Math.max(-0.5, Math.min(0.5, 0.5*(la-lc)/den)); }
+        dom[b][i] = (best+d)*sr/N; lev[b][i] = bv;
+      }
+      for (let r=0;r<NROW;r++){
+        const ka = rows[r][0], kb = rows[r][1]; let v = 0;
+        if (kb-ka < 1){ const kc = Math.min(kTop, (ka+kb)/2), k0 = Math.floor(kc), t = kc-k0; v = mag[k0]*(1-t)+mag[k0+1]*t; }
+        else for (let k=Math.ceil(ka); k<=Math.min(kTop, Math.floor(kb)); k++) if (mag[k]>v) v = mag[k];
+        spec[i*NROW+r] = v;
+      }
+    }
+    if (i<nF){ if (progress) progress(i/nF); setTimeout(chunk, 0); return; }
+    done({ tA:o.tA, tB:o.tB, nF, N, fLo:o.fLo, fHi:o.fHi, dom, lev, spec, base:null });
+  })();
+}
+function buildBase(res){
+  const c = document.createElement('canvas'); c.width = res.nF; c.height = NROW;
+  const x = c.getContext('2d'), id = x.createImageData(res.nF, NROW), d = id.data, P = rgb(css('--plate')||'#0b0c0e'), S = rgb(css('--sand')||'#efe6d0'), mx = mu.specMax;
+  for (let i=0;i<res.nF;i++) for (let r=0;r<NROW;r++){
+    let v = (20*Math.log10(res.spec[i*NROW+r]/mx + 1e-9) + 70)/70; v = v<0 ? 0 : v>1 ? 1 : v; v = v*v*0.75;
+    const o = 4*((NROW-1-r)*res.nF + i); d[o]=P[0]+(S[0]-P[0])*v; d[o+1]=P[1]+(S[1]-P[1])*v; d[o+2]=P[2]+(S[2]-P[2])*v; d[o+3]=255;
+  }
+  x.putImageData(id, 0, 0); res.base = c;
+}
 function loadMusic(file){
   if (!file) return;
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -661,82 +724,89 @@ function loadMusic(file){
   stopMusic(); mu.off = 0;
   $('muStatus').textContent = 'lendo o arquivo…';
   if (!mu.ctx) mu.ctx = new AC();
-  file.arrayBuffer().then(ab => mu.ctx.decodeAudioData(ab)).then(buf => analyze(buf, file.name))
-    .catch(() => { $('muStatus').textContent = 'Não consegui ler este arquivo. Tente MP3, WAV, OGG ou M4A.'; });
+  file.arrayBuffer().then(ab => mu.ctx.decodeAudioData(ab)).then(buf => {
+    const job = ++mu.job; mu.vjob++;
+    const n = buf.length, nc = buf.numberOfChannels, mono = new Float32Array(n);
+    for (let c=0;c<nc;c++){ const d = buf.getChannelData(c); for (let i=0;i<n;i++) mono[i] += d[i]/nc; }
+    mu.mono = mono; mu.sr = buf.sampleRate;
+    const dur = buf.duration, bd = BANDS[mu.band];
+    stft({ tA:0, tB:dur, nF: Math.max(40, Math.min(2400, Math.round(dur*20))), N:4096, fLo:bd[1], fHi:bd[2] }, () => job !== mu.job,
+      p => { $('muStatus').textContent = 'analisando… '+Math.round(100*p)+' %'; },
+      res => {
+        let mx = 1e-12; for (let k=0;k<res.spec.length;k++) if (res.spec[k]>mx) mx = res.spec[k];
+        Object.assign(mu, { buf, dur, g:res, v:res, specMax:mx, maxLev: res.lev.map(l => l.reduce((m,v) => Math.max(m,v), 1e-12)), off:0, hover:null, vt0:0, vt1:dur });
+        buildBase(res); computeTop();
+        $('muStatus').textContent = file.name+' · '+fmtT(dur);
+        $('muEmpty').hidden = true; $('muLoaded').hidden = false; $('muGallery').innerHTML = '';
+        syncPan(); drawMusic();
+      });
+  }).catch(() => { $('muStatus').textContent = 'Não consegui ler este arquivo. Tente MP3, WAV, OGG ou M4A.'; });
 }
-function analyze(buf, name){
-  const job = ++mu.job, n = buf.length, sr = buf.sampleRate, nc = buf.numberOfChannels;
-  const mono = new Float32Array(n);
-  for (let c=0;c<nc;c++){ const d = buf.getChannelData(c); for (let i=0;i<n;i++) mono[i] += d[i]/nc; }
-  const dur = buf.duration, nF = Math.max(40, Math.min(2400, Math.round(dur*20)));
-  const kTop = Math.min(NF/2-2, Math.floor(MF1*NF/sr));
-  const bandK = BANDS.map(([,a,b]) => [Math.max(2, Math.ceil(a*NF/sr)), Math.min(kTop, Math.floor(b*NF/sr))]);
-  const rowK = []; for (let r=0;r<NROW;r++){ const fa = MF0*Math.pow(MF1/MF0, r/NROW), fb = MF0*Math.pow(MF1/MF0, (r+1)/NROW); rowK.push([Math.min(kTop, Math.floor(fa*NF/sr)), Math.min(kTop, Math.ceil(fb*NF/sr))]); }
-  const dom = BANDS.map(() => new Float32Array(nF)), lev = BANDS.map(() => new Float32Array(nF)), spec = new Float32Array(nF*NROW);
-  const re = new Float64Array(NF), im = new Float64Array(NF), mag = new Float32Array(NF/2);
-  let i = 0;
-  (function chunk(){
-    if (job !== mu.job) return;
-    const end = Math.min(nF, i+60);
-    for (; i<end; i++){
-      const start = Math.round((i+0.5)*n/nF) - NF/2;
-      for (let j=0;j<NF;j++){ const q = start+j; re[j] = (q>=0 && q<n) ? mono[q]*hann[j] : 0; im[j] = 0; }
-      fft(re, im);
-      for (let k=1;k<=kTop+1;k++) mag[k] = Math.sqrt(re[k]*re[k]+im[k]*im[k]);
-      for (let b=0;b<BANDS.length;b++){
-        let best = bandK[b][0], bv = -1;
-        for (let k=bandK[b][0]; k<=bandK[b][1]; k++) if (mag[k]>bv){ bv = mag[k]; best = k; }
-        let d = 0; const a = mag[best-1], c = mag[best+1];
-        if (bv>0 && a>0 && c>0){ const la=Math.log(a), lb=Math.log(bv), lc=Math.log(c), den=la-2*lb+lc; if (den<0) d = Math.max(-0.5, Math.min(0.5, 0.5*(la-lc)/den)); }
-        dom[b][i] = (best+d)*sr/NF; lev[b][i] = bv;
-      }
-      for (let r=0;r<NROW;r++){ let v = 0; for (let k=rowK[r][0]; k<=rowK[r][1]; k++) if (mag[k]>v) v = mag[k]; spec[i*NROW+r] = v; }
-    }
-    if (i<nF){ $('muStatus').textContent = 'analisando… '+Math.round(100*i/nF)+' %'; setTimeout(chunk, 0); return; }
-    Object.assign(mu, { buf, dur, nF, dom, lev, maxLev: lev.map(l => l.reduce((m,v) => Math.max(m,v), 1e-12)), off:0, hover:null });
-    buildBase(spec); computeTop();
-    $('muStatus').textContent = name+' · '+fmtT(dur);
-    $('muEmpty').hidden = true; $('muLoaded').hidden = false; $('muGallery').innerHTML = '';
-    drawMusic();
-  })();
+const audibleIn = (res,b,i) => res.lev[b][i] > 0.004*mu.maxLev[b];
+// Dominante no instante t: usa a análise detalhada do trecho visível quando ela cobre t
+function domAt(t){
+  const v = mu.v, res = (v && t>=v.tA && t<v.tB) ? v : mu.g;
+  const i = Math.max(0, Math.min(res.nF-1, Math.floor((t-res.tA)/(res.tB-res.tA)*res.nF)));
+  return { f: res.dom[mu.band][i], ok: audibleIn(res, mu.band, i) };
 }
-function buildBase(spec){
-  const c = document.createElement('canvas'); c.width = mu.nF; c.height = NROW;
-  const x = c.getContext('2d'), id = x.createImageData(mu.nF, NROW), d = id.data, P = rgb(css('--plate')||'#0b0c0e'), S = rgb(css('--sand')||'#efe6d0');
-  let mx = 1e-12; for (let k=0;k<spec.length;k++) if (spec[k]>mx) mx = spec[k];
-  for (let i=0;i<mu.nF;i++) for (let r=0;r<NROW;r++){
-    let v = (20*Math.log10(spec[i*NROW+r]/mx + 1e-9) + 70)/70; v = v<0 ? 0 : v>1 ? 1 : v; v = v*v*0.75;
-    const o = 4*((NROW-1-r)*mu.nF + i); d[o]=P[0]+(S[0]-P[0])*v; d[o+1]=P[1]+(S[1]-P[1])*v; d[o+2]=P[2]+(S[2]-P[2])*v; d[o+3]=255;
-  }
-  x.putImageData(id, 0, 0); mu.base = c;
-}
-const audible = (b,i) => mu.lev[b][i] > 0.004*mu.maxLev[b];
 function computeTop(){
-  const b = mu.band, NB_ = 160, w = new Float64Array(NB_), fw = new Float64Array(NB_), cnt = new Float64Array(NB_), L = Math.log(MF1/MF0);
+  const g = mu.g, b = mu.band, NB_ = 160, w = new Float64Array(NB_), fw = new Float64Array(NB_), cnt = new Float64Array(NB_), L = Math.log(MF1/MF0);
   let tot = 0;
-  for (let i=0;i<mu.nF;i++) if (audible(b,i)){ const k = Math.min(NB_-1, Math.max(0, Math.floor(Math.log(mu.dom[b][i]/MF0)/L*NB_))); w[k] += mu.lev[b][i]; fw[k] += mu.lev[b][i]*mu.dom[b][i]; cnt[k]++; tot++; }
+  for (let i=0;i<g.nF;i++) if (audibleIn(g,b,i)){ const k = Math.min(NB_-1, Math.max(0, Math.floor(Math.log(g.dom[b][i]/MF0)/L*NB_))); w[k] += g.lev[b][i]; fw[k] += g.lev[b][i]*g.dom[b][i]; cnt[k]++; tot++; }
   const order = Array.from(w.keys()).filter(k => w[k]>0).sort((p,q) => cnt[q]-cnt[p]), taken = [], top = [];
   for (const k of order){ if (taken.some(t => Math.abs(t-k)<=1)) continue; taken.push(k); top.push({ f: fw[k]/w[k], share: ((cnt[k-1]||0)+cnt[k]+(cnt[k+1]||0))/Math.max(1,tot) }); if (top.length===8) break; }
   mu.top = top;
   const el = $('muTop'); el.innerHTML = '';
   if (!top.length) el.textContent = 'Nenhuma frequência audível nesta faixa.';
-  for (const t of top){ const bt = document.createElement('button'); bt.className = 'chip ref'; bt.textContent = fmtF(t.f)+' · '+Math.round(100*t.share)+' %'; bt.title = 'Dominante em '+Math.round(100*t.share)+' % do tempo'; bt.addEventListener('click', () => setFreq(Math.round(t.f))); el.appendChild(bt); }
+  for (const t of top){ const bt = document.createElement('button'); bt.className = 'chip ref'; bt.textContent = fmtF(t.f)+' · '+Math.round(100*t.share)+' %'; bt.title = noteOf(t.f)+' · dominante em '+Math.round(100*t.share)+' % do tempo'; bt.addEventListener('click', () => setFreq(r10(t.f))); el.appendChild(bt); }
 }
+
+// ---------- janela visível (zoom) ----------
+const yLo = () => BANDS[mu.band][1], yHi = () => BANDS[mu.band][2];
 const muCv = $('muCv'), muX = muCv.getContext('2d');
+const tX = t => (t-mu.vt0)/(mu.vt1-mu.vt0)*muCv.width;
+const fY = f => muCv.height*(1-Math.log(f/yLo())/Math.log(yHi()/yLo()));
+const isFull = () => mu.vt0 <= 1e-6 && mu.vt1 >= mu.dur-1e-6;
+function setView(a, b){
+  const minSpan = Math.min(mu.dur, 0.5); let span = Math.max(minSpan, Math.min(mu.dur, b-a));
+  a = Math.max(0, Math.min(mu.dur-span, a)); mu.vt0 = a; mu.vt1 = a+span;
+  syncPan(); drawMusic(); requestView();
+}
+function zoomAt(tc, k){ const span = (mu.vt1-mu.vt0)*k, rel = (tc-mu.vt0)/(mu.vt1-mu.vt0); setView(tc-rel*span, tc-rel*span+span); }
+function syncPan(){
+  const p = $('muPan'), span = mu.vt1-mu.vt0; p.disabled = isFull(); p.value = isFull() ? 0 : Math.round(1000*mu.vt0/(mu.dur-span));
+  $('muZoomInfo').textContent = isFull() ? 'música inteira' : fmtT(mu.vt0)+' – '+fmtT(mu.vt1)+' · zoom '+(mu.dur/span).toFixed(span<mu.dur/10?0:1).replace('.',',')+'×';
+}
+function requestView(){
+  clearTimeout(mu.vtimer);
+  mu.vtimer = setTimeout(() => {
+    if (!mu.g) return;
+    const job = ++mu.vjob, N = +$('muPrec').value, g = mu.g, span = mu.vt1-mu.vt0;
+    if (isFull() && N === g.N && g.fLo === yLo() && g.fHi === yHi()){ mu.v = g; drawMusic(); return; }
+    const nF = Math.round(Math.max(60, Math.min(1400, span*150, span*mu.sr/96)));
+    $('muZoomInfo').textContent += ' · refinando…';
+    stft({ tA:mu.vt0, tB:mu.vt1, nF, N, fLo:yLo(), fHi:yHi() }, () => job !== mu.vjob, null, res => { buildBase(res); mu.v = res; syncPan(); drawMusic(); });
+  }, 140);
+}
 function drawMusic(){
-  if (!mu.base) return;
-  const W = muCv.width, H = muCv.height, b = mu.band;
-  muX.imageSmoothingEnabled = true; muX.drawImage(mu.base, 0, 0, W, H);
+  if (!mu.g) return;
+  const W = muCv.width, H = muCv.height, b = mu.band, v = mu.v;
+  muX.fillStyle = css('--plate') || '#0b0c0e'; muX.fillRect(0,0,W,H);
+  muX.imageSmoothingEnabled = true;
+  const yT = fY(v.fHi), yB = fY(v.fLo);
+  muX.drawImage(v.base, tX(v.tA), yT, tX(v.tB)-tX(v.tA), yB-yT);
   muX.font = '20px "IBM Plex Mono", monospace'; muX.textBaseline = 'middle'; muX.textAlign = 'left';
-  for (const f of [200,500,1000,2000,5000]){ const y = muY(f,H); muX.fillStyle = 'rgba(255,255,255,.16)'; muX.fillRect(0,y,W,1); muX.fillStyle = 'rgba(255,255,255,.6)'; muX.fillText(f>=1000 ? (f/1000)+' kHz' : f+' Hz', 6, y-12); }
+  for (const f of [150,200,300,400,500,700,1000,1500,2000,3000,4000,5000]){ if (f <= yLo()*1.08 || f >= yHi()*0.93) continue; const y = fY(f); muX.fillStyle = 'rgba(255,255,255,.16)'; muX.fillRect(0,y,W,1); muX.fillStyle = 'rgba(255,255,255,.62)'; muX.fillText(f>=1000 ? (f/1000)+' kHz' : f+' Hz', 6, y-12); }
+  const span = mu.vt1-mu.vt0, step = [0.05,0.1,0.2,0.5,1,2,5,10,15,30,60,120].find(s => span/s <= 10) || 300;
+  muX.textAlign = 'center'; muX.textBaseline = 'bottom';
+  for (let t = Math.ceil(mu.vt0/step)*step; t < mu.vt1; t += step){ const x = tX(t); if (x < 60 || x > W-40) continue; muX.fillStyle = 'rgba(255,255,255,.16)'; muX.fillRect(x, H-22, 1, 22); muX.fillStyle = 'rgba(255,255,255,.62)'; muX.fillText(fmtT(t, step<1), x, H-22); }
   muX.fillStyle = css('--accent');
-  const dx = Math.max(2, W/mu.nF);
-  for (let i=0;i<mu.nF;i++) if (audible(b,i)) muX.fillRect(i/mu.nF*W, muY(mu.dom[b][i],H)-2, dx, 4);
-  const xp = musicTime()/mu.dur*W; muX.fillStyle = '#ffffff'; muX.fillRect(xp-1, 0, 2, H);
-  if (mu.hover != null){ const xh = mu.hover/mu.dur*W; muX.fillStyle = 'rgba(255,255,255,.55)'; muX.fillRect(xh, 0, 1, H); }
+  const dx = Math.max(2, (tX(v.tB)-tX(v.tA))/v.nF);
+  for (let i=0;i<v.nF;i++) if (audibleIn(v,b,i)){ const f = v.dom[b][i]; if (f < yLo() || f > yHi()) continue; muX.fillRect(tX(v.tA + i*(v.tB-v.tA)/v.nF), fY(f)-2, dx, 4); }
+  const xp = tX(musicTime()); if (xp >= 0 && xp <= W){ muX.fillStyle = '#ffffff'; muX.fillRect(xp-1, 0, 2, H); }
+  if (mu.hover){ muX.fillStyle = 'rgba(255,255,255,.55)'; muX.fillRect(tX(mu.hover.t), 0, 1, H); muX.fillRect(0, fY(mu.hover.f), W, 1); }
   $('muTime').textContent = fmtT(musicTime())+' / '+fmtT(mu.dur);
 }
-const frameAt = t => Math.max(0, Math.min(mu.nF-1, Math.floor(t/mu.dur*mu.nF)));
 const musicTime = () => mu.playing ? Math.min(mu.dur, mu.off + mu.ctx.currentTime - mu.t0) : mu.off;
 function playMusic(){
   if (!mu.buf || mu.playing) return;
@@ -755,22 +825,35 @@ function stopMusic(){
 function seekMusic(t){ const was = mu.playing; stopMusic(); mu.off = Math.max(0, Math.min(mu.dur-0.01, t)); if (was) playMusic(); }
 function musicTick(){
   if (!mu.buf || !mu.playing) return;
-  const i = frameAt(musicTime());
-  if ($('muFollow').checked && audible(mu.band,i)){ const f = Math.round(mu.dom[mu.band][i]); if (Math.abs(f-mu.lastF) > 0.004*f){ mu.lastF = f; setFreq(f); } }
+  const t = musicTime();
+  if (!isFull() && (t < mu.vt0 || t >= mu.vt1)){ const span = mu.vt1-mu.vt0, a = Math.floor(t/span)*span; setView(a, a+span); }
+  const d = domAt(t);
+  if ($('muFollow').checked && d.ok){ const f = r10(d.f); if (Math.abs(f-mu.lastF) > 0.004*f){ mu.lastF = f; setFreq(f); } }
   drawMusic();
 }
-function muPointer(ev){ const r = muCv.getBoundingClientRect(); return Math.max(0, Math.min(mu.dur, (ev.clientX-r.left)/r.width*mu.dur)); }
+function muPointer(ev){
+  const r = muCv.getBoundingClientRect(), u = Math.max(0, Math.min(1, (ev.clientX-r.left)/r.width)), w = Math.max(0, Math.min(1, (ev.clientY-r.top)/r.height));
+  return { t: mu.vt0 + u*(mu.vt1-mu.vt0), f: yLo()*Math.pow(yHi()/yLo(), 1-w) };
+}
 muCv.addEventListener('pointermove', ev => {
-  if (!mu.buf) return; const t = muPointer(ev), i = frameAt(t); mu.hover = t;
-  $('muInfo').textContent = fmtT(t)+' · frequência dominante: '+(audible(mu.band,i) ? fmtF(mu.dom[mu.band][i]) : 'silêncio nesta faixa')+' · clique para levar a música e a placa até aqui';
+  if (!mu.g) return; const h = muPointer(ev), d = domAt(h.t); mu.hover = h;
+  $('muInfo').textContent = fmtT(h.t, true)+' · dominante: '+(d.ok ? fmtFN(d.f) : 'silêncio nesta faixa')+' · sob o cursor: '+fmtFN(h.f);
   if (!mu.playing) drawMusic();
 });
 muCv.addEventListener('pointerleave', () => { mu.hover = null; if (!mu.playing) drawMusic(); });
 muCv.addEventListener('pointerdown', ev => {
-  if (!mu.buf) return; const t = muPointer(ev), i = frameAt(t); seekMusic(t);
-  if (audible(mu.band,i)){ mu.lastF = Math.round(mu.dom[mu.band][i]); setFreq(mu.lastF); }
+  if (!mu.g) return; const h = muPointer(ev), d = domAt(h.t); seekMusic(h.t);
+  if (ev.shiftKey){ mu.lastF = r10(h.f); setFreq(mu.lastF); }
+  else if (d.ok){ mu.lastF = r10(d.f); setFreq(mu.lastF); }
   drawMusic();
 });
+muCv.addEventListener('wheel', ev => { if (!mu.g) return; ev.preventDefault(); zoomAt(muPointer(ev).t, ev.deltaY < 0 ? 0.6 : 1/0.6); }, { passive:false });
+const viewMid = () => { const t = musicTime(); return (t > mu.vt0 && t < mu.vt1) ? t : (mu.vt0+mu.vt1)/2; };
+$('muZoomIn').addEventListener('click', () => zoomAt(viewMid(), 0.5));
+$('muZoomOut').addEventListener('click', () => zoomAt(viewMid(), 2));
+$('muZoomAll').addEventListener('click', () => setView(0, mu.dur));
+$('muPan').addEventListener('input', () => { const span = mu.vt1-mu.vt0, a = (+$('muPan').value/1000)*(mu.dur-span); mu.vt0 = a; mu.vt1 = a+span; syncPan(); drawMusic(); requestView(); });
+$('muPrec').addEventListener('change', requestView);
 $('muFile').addEventListener('change', ev => loadMusic(ev.target.files[0]));
 const mbox = $('musicbox');
 mbox.addEventListener('dragover', ev => { ev.preventDefault(); mbox.classList.add('drag'); });
@@ -778,7 +861,7 @@ mbox.addEventListener('dragleave', () => mbox.classList.remove('drag'));
 mbox.addEventListener('drop', ev => { ev.preventDefault(); mbox.classList.remove('drag'); if (ev.dataTransfer.files[0]) loadMusic(ev.dataTransfer.files[0]); });
 $('muPlay').addEventListener('click', () => mu.playing ? stopMusic() : playMusic());
 BANDS.forEach((b,k) => { const o = document.createElement('option'); o.value = k; o.textContent = b[0]; $('muBand').appendChild(o); });
-$('muBand').addEventListener('change', () => { mu.band = +$('muBand').value; computeTop(); drawMusic(); });
+$('muBand').addEventListener('change', () => { mu.band = +$('muBand').value; if (!mu.g) return; computeTop(); drawMusic(); requestView(); });
 
 // ---------- imagens ----------
 let dl = null;
@@ -804,14 +887,14 @@ function gallery(items){
   if (!items.length){ el.textContent = 'Nada para gerar nesta faixa.'; return; }
   for (const it of items){
     const fig = document.createElement('figure'), c = figureCanvas(it.f, 480), cap = document.createElement('figcaption');
-    c.title = 'Ver esta figura na placa'; c.addEventListener('click', () => { setFreq(Math.round(it.f)); if (it.t != null){ seekMusic(it.t); drawMusic(); } });
+    c.title = 'Ver esta figura na placa'; c.addEventListener('click', () => { setFreq(r10(it.f)); if (it.t != null){ seekMusic(it.t); drawMusic(); } });
     cap.textContent = it.label; fig.appendChild(c); fig.appendChild(cap);
     if (dl){ const b = document.createElement('button'); b.textContent = 'Salvar PNG'; b.addEventListener('click', () => savePng(c, 'chladni-'+Math.round(it.f)+'Hz.png', b)); fig.appendChild(b); }
     el.appendChild(fig);
   }
 }
 $('muGenTop').addEventListener('click', () => gallery(mu.top.map(t => ({ f:t.f, label: fmtF(t.f)+' · '+Math.round(100*t.share)+' % do tempo' }))));
-$('muGenTime').addEventListener('click', () => { const out = []; for (let k=0;k<12;k++){ const t = (k+0.5)/12*mu.dur, i = frameAt(t); if (audible(mu.band,i)) out.push({ f: mu.dom[mu.band][i], t, label: fmtT(t)+' · '+fmtF(mu.dom[mu.band][i]) }); } gallery(out); });
+$('muGenTime').addEventListener('click', () => { const out = [], a = mu.vt0, b = mu.vt1; for (let k=0;k<12;k++){ const t = a+(k+0.5)/12*(b-a), d = domAt(t); if (d.ok) out.push({ f:d.f, t, label: fmtT(t, b-a<30)+' · '+fmtF(d.f) }); } gallery(out); });
 $('muSaveNow').addEventListener('click', () => savePng(pc, 'chladni-'+Math.round(st.f)+'Hz.png', null));
 
 // ---------- início ----------
