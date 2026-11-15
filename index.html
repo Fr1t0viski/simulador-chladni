@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de Figuras de Chladni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: bancada de laboratório. Placa preta à esquerda, painel de instrumentos à direita, espectro sob a placa */
+  --bg:#eceff2; --surface:#ffffff; --ink:#16202a; --muted:#5b6875; --line:#d3d9df; --accent:#0f6e78; --accent-ink:#ffffff;
+  --plate:#0b0c0e; --sand:#efe6d0; --warn:#9a5b00;
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#11151a; --surface:#1a2027; --ink:#e7ebef; --muted:#97a3af; --line:#2d363f; --accent:#56bcc8; --accent-ink:#0b1114; --warn:#e0a84a; color-scheme:dark; }
+}
+:root[data-theme="dark"]{ --bg:#11151a; --surface:#1a2027; --ink:#e7ebef; --muted:#97a3af; --line:#2d363f; --accent:#56bcc8; --accent-ink:#0b1114; --warn:#e0a84a; color-scheme:dark; }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;flex-wrap:wrap;gap:4px 20px;align-items:baseline;margin-bottom:16px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:65ch}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+@media (max-width:900px){.main{grid-template-columns:minmax(0,1fr)}}
+.stage{display:flex;flex-direction:column;gap:10px;min-width:0}
+.platebox{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px}
+#plate{display:block;width:100%;max-width:680px;margin:0 auto;aspect-ratio:1;background:var(--plate);border-radius:2px;box-shadow:0 6px 18px rgba(0,0,0,.28)}
+.readout{display:flex;flex-wrap:wrap;gap:6px 22px;justify-content:center;margin-top:12px;font-family:var(--mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.readout b{color:var(--ink);font-weight:500}
+.specbox{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 14px 8px}
+#spec{display:block;width:100%;height:120px;cursor:crosshair;touch-action:none}
+.cap{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.panel{display:flex;flex-direction:column;gap:12px}
+section,details.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px}
+h2,summary{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+summary{cursor:pointer;margin:0}
+details[open]>summary{margin-bottom:12px}
+.freqrow{display:flex;align-items:baseline;gap:8px}
+#freq{font-family:var(--mono);font-size:30px;font-weight:500;width:100%;min-width:0;padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums}
+.unit{font-family:var(--mono);color:var(--muted);font-size:16px}
+input[type=range]{width:100%;accent-color:var(--accent);margin:8px 0 2px}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+button{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+button.chip{font-family:var(--mono);font-size:12.5px;padding:4px 8px}
+button.chip.ref{border-color:var(--accent);color:var(--accent)}
+button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.field{display:grid;grid-template-columns:1fr 96px;gap:4px 10px;align-items:center;margin-bottom:8px}
+.field label{font-size:13.5px}
+.field small{grid-column:1/-1;color:var(--muted);font-size:12px;margin-top:-2px}
+.field input[type=number],select{font-family:var(--mono);font-size:13px;width:100%;padding:5px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.slider{margin-bottom:8px}
+.slider label{display:flex;justify-content:space-between;font-size:13.5px}
+.slider output{font-family:var(--mono);color:var(--muted);font-size:12.5px}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;margin-top:4px}
+.hint{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+.status{font-family:var(--mono);font-size:12px;color:var(--warn);min-height:1.4em}
+.notes p,.notes li{font-size:13.5px;max-width:65ch}
+.notes ul{padding-left:18px;margin:6px 0}
+.notes code{font-family:var(--mono);font-size:12.5px}
+.seg{display:flex;gap:6px}
+.murow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:8px}
+.mono{font-family:var(--mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+#muFile{font:inherit;font-size:13px;max-width:100%}
+#muCv{display:block;width:100%;height:auto;cursor:crosshair;touch-action:none;background:var(--plate);border-radius:2px}
+#musicbox.drag{outline:2px dashed var(--accent);outline-offset:-4px}
+#muGallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:12px}
+#muGallery figure{margin:0;display:flex;flex-direction:column;gap:4px}
+#muGallery canvas{width:100%;aspect-ratio:1;background:var(--plate);border-radius:2px;cursor:pointer}
+#muGallery figcaption{font-family:var(--mono);font-size:12px;color:var(--muted)}
+#muGallery button{font-size:12px;padding:3px 6px;align-self:flex-start}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Simulador de Figuras de Chladni</h1>
+    <p>Placa quadrada de bordas livres, vibrada pelo centro. Informe a frequência, ou envie uma música, e a areia migra para as linhas nodais.</p>
+  </header>
+
+  <div class="main">
+    <div class="stage">
+      <div class="platebox">
+        <canvas id="plate" width="680" height="680" aria-label="Vista de cima da placa com areia"></canvas>
+        <div class="readout">
+          <span>frequência <b id="rdF">–</b></span>
+          <span>comprimento de onda <b id="rdL">–</b></span>
+          <span>resposta <b id="rdE">–</b></span>
+          <span>grãos em movimento <b id="rdM">–</b></span>
+        </div>
+      </div>
+      <div class="specbox">
+        <canvas id="spec" width="1360" height="240" aria-label="Resposta da placa em função da frequência"></canvas>
+        <p class="cap">Vibração da placa em relação ao excitador, por frequência (escala logarítmica). Cada pico é uma frequência em que a figura aparece forte. Clique ou arraste para escolher a frequência.</p>
+      </div>
+      <div class="specbox" id="musicbox">
+        <h2>Música</h2>
+        <div class="murow">
+          <input id="muFile" type="file" accept="audio/*" aria-label="Arquivo de música">
+          <span class="status" id="muStatus"></span>
+        </div>
+        <p class="cap" id="muEmpty">Envie um arquivo de áudio (MP3, WAV, OGG, M4A) ou arraste-o para cá. O arquivo é analisado no seu navegador e não é enviado a lugar nenhum.</p>
+        <div id="muLoaded" hidden>
+          <div class="murow">
+            <button class="primary" id="muPlay">Tocar</button>
+            <span class="mono" id="muTime">0:00,0 / 0:00,0</span>
+            <label class="check" style="margin:0"><input id="muFollow" type="checkbox" checked> <span>A placa acompanha a música</span></label>
+            <label for="muBand" class="mono">Faixa</label>
+            <select id="muBand" style="width:auto"></select>
+          </div>
+          <canvas id="muCv" width="1360" height="300" aria-label="Espectrograma da música com a frequência dominante"></canvas>
+          <p class="cap" id="muInfo">Passe o mouse sobre o gráfico para ver a frequência dominante em cada instante. Clique para levar a música e a placa até lá.</p>
+          <p class="hint">Frequências principais da música (clique para ver a figura):</p>
+          <div class="btns" id="muTop"></div>
+          <div class="btns">
+            <button id="muGenTop">Gerar imagens das frequências principais</button>
+            <button id="muGenTime">Gerar 12 imagens ao longo da música</button>
+            <button id="muSaveNow" hidden>Salvar a figura atual (PNG)</button>
+          </div>
+          <div id="muGallery"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <section>
+        <h2>Frequência</h2>
+        <div class="freqrow"><input id="freq" type="number" min="100" max="7000" step="1" value="2041" inputmode="decimal" aria-label="Frequência em hertz"><span class="unit">Hz</span></div>
+        <input id="freqRange" type="range" min="100" max="7000" step="1" value="2041" aria-label="Frequência">
+        <div class="btns">
+          <button data-nudge="-10">−10</button><button data-nudge="-1">−1</button><button data-nudge="1">+1</button><button data-nudge="10">+10</button>
+          <button id="prevPeak">◂ pico anterior</button><button id="nextPeak">próximo pico ▸</button>
+        </div>
+        <p class="hint">Frequências das suas fotos de referência:</p>
+        <div class="btns" id="refs"></div>
+        <p class="hint">Outras frequências indicadas pelo fabricante da placa:</p>
+        <div class="btns" id="others"></div>
+      </section>
+
+      <section>
+        <h2>Areia</h2>
+        <div class="btns" style="margin-top:0">
+          <button class="primary" id="scatter">Espalhar areia de novo</button>
+          <button id="pause" aria-pressed="false">Pausar</button>
+        </div>
+        <div class="slider" style="margin-top:12px"><label for="grains">Quantidade de grãos <output id="oGrains"></output></label><input id="grains" type="range" min="10000" max="160000" step="5000" value="70000"></div>
+        <div class="slider"><label for="volume">Volume do gerador <output id="oVolume"></output></label><input id="volume" type="range" min="0.2" max="3" step="0.05" value="1"></div>
+        <label class="check"><input id="autogain" type="checkbox" checked> <span>Ganho automático: mesma agitação em qualquer frequência. Desligado, a areia só se move perto das ressonâncias, como na placa real.</span></label>
+        <p class="hint">Vista:</p>
+        <div class="seg"><button id="vSand" aria-pressed="true">Areia</button><button id="vNodal" aria-pressed="false">Linhas nodais teóricas</button></div>
+      </section>
+
+      <details class="card" open>
+        <summary>Placa</summary>
+        <div class="field"><label for="material">Material</label>
+          <select id="material"><option value="steel">Aço</option><option value="al">Alumínio</option><option value="brass">Latão</option><option value="glass">Vidro</option><option value="custom">Outro</option></select></div>
+        <div class="field"><label for="side">Lado (cm)</label><input id="side" type="number" value="24" min="5" max="100" step="0.1"></div>
+        <div class="field"><label for="thick">Espessura efetiva (mm)</label><input id="thick" type="number" value="0.755" min="0.1" max="10" step="0.001"><small>Aço de 0,755 mm (chapa bitola 22) é o que melhor reproduz as fotos.</small></div>
+        <div class="field"><label for="E">Módulo de Young (GPa)</label><input id="E" type="number" value="200" min="1" max="500" step="0.5"></div>
+        <div class="field"><label for="rho">Densidade (kg/m³)</label><input id="rho" type="number" value="7850" min="100" max="25000" step="10"></div>
+        <div class="field"><label for="nu">Coeficiente de Poisson</label><input id="nu" type="number" value="0.29" min="0.05" max="0.49" step="0.01"></div>
+        <div class="status" id="status"></div>
+      </details>
+
+      <details class="card">
+        <summary>Imperfeições da montagem</summary>
+        <div class="field"><label for="eta">Amortecimento (%)</label><input id="eta" type="number" value="0.3" min="0.01" max="5" step="0.01"><small>Menor: ressonâncias mais estreitas e padrões mais puros.</small></div>
+        <div class="field"><label for="eps">Anisotropia da chapa (%)</label><input id="eps" type="number" value="0" min="-3" max="3" step="0.05"><small>Chapa laminada é um pouco mais rígida num sentido. Zero dá uma placa perfeita.</small></div>
+        <div class="field"><label for="offx">Desvio do excitador em x (mm)</label><input id="offx" type="number" value="0" min="-40" max="40" step="0.1"></div>
+        <div class="field"><label for="offy">Desvio do excitador em y (mm)</label><input id="offy" type="number" value="0" min="-40" max="40" step="0.1"><small>Fora do centro, o excitador também aciona modos assimétricos.</small></div>
+      </details>
+
+      <details class="card notes">
+        <summary>Modelo e fidelidade</summary>
+        <p>A placa obedece à equação de Kirchhoff para flexão, <code>D∇⁴w + ρh ∂²w/∂t² = F·δ(x−x₀)·cos(2πft)</code>, com as quatro bordas livres. Os modos próprios são calculados pelo método de Ritz com 30×30 polinômios de Legendre. A figura em cada frequência é a resposta forçada, soma de todos os modos com amortecimento:</p>
+        <p><code>w(x) = Σ φₙ(x₀)·φₙ(x) / (λₙ − λ(1 − iη))</code></p>
+        <p>Na música, o áudio é cortado em janelas de cerca de 0,1 s e cada uma passa por uma transformada de Fourier. A frequência dominante é a de maior intensidade dentro da faixa escolhida; a placa mostra a figura dessa frequência, não a mistura de todas as que soam juntas.</p>
+        <p>A areia segue uma caminhada aleatória cujo passo cresce com a amplitude local e zera abaixo de um limiar, por isso se acumula onde <code>|w| ≈ 0</code>.</p>
+        <p>O excitador prende o centro da placa. As figuras fortes aparecem nas frequências em que a placa vibra muito e o centro quase não se move, e é nelas que estão os picos do gráfico. Por isso quase toda foto tem um ponto ou anel de areia no parafuso.</p>
+        <ul>
+          <li>Os autovalores conferem com a literatura (13,47 · 19,60 · 24,27 · 34,80 para ν = 0,3).</li>
+          <li>Com aço de 0,755 mm, os picos calculados caem em 1820, 2041, 3240, 4840 e 5201 Hz com erro abaixo de 1%, todos na lista do fabricante.</li>
+          <li>Conferem com as fotos: 1033, 1820, 2041, 4049 e 5201 Hz, com pequenas diferenças de detalhe.</li>
+          <li>Não conferem: 3975, 4221 e 5907 Hz. Essas figuras vêm de modos que um excitador perfeitamente centrado não aciona; dependem de imperfeições da montagem que os controles acima só aproximam.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== Núcleo numérico: placa de Kirchhoff quadrada, bordas livres, método de Ritz =====
+const NB = 30;            // polinômios de Legendre por direção (graus 0..29)
+
+function gaussLegendre(n) {
+  const x = new Float64Array(n), w = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let z = Math.cos(Math.PI * (i + 0.75) / (n + 0.5)), pp = 0;
+    for (let it = 0; it < 100; it++) {
+      let p1 = 1, p2 = 0;
+      for (let j = 1; j <= n; j++) { const p3 = p2; p2 = p1; p1 = ((2 * j - 1) * z * p2 - (j - 1) * p3) / j; }
+      pp = n * (z * p1 - p2) / (z * z - 1);
+      const dz = p1 / pp; z -= dz;
+      if (Math.abs(dz) < 1e-15) break;
+    }
+    x[i] = z; w[i] = 2 / ((1 - z * z) * pp * pp);
+  }
+  return { x, w };
+}
+
+// Legendre ortonormais em [-1,1]: valores e derivadas 1ª e 2ª. Retorna [P, P1, P2] com P[i][k]
+function legendreTable(xs, n = NB) {
+  const m = xs.length;
+  const P = [], P1 = [], P2 = [];
+  for (let i = 0; i < n; i++) { P.push(new Float64Array(m)); P1.push(new Float64Array(m)); P2.push(new Float64Array(m)); }
+  for (let k = 0; k < m; k++) {
+    const x = xs[k];
+    P[0][k] = 1; if (n > 1) { P[1][k] = x; P1[1][k] = 1; }
+    for (let i = 1; i < n - 1; i++) {
+      P[i + 1][k] = ((2 * i + 1) * x * P[i][k] - i * P[i - 1][k]) / (i + 1);
+      P1[i + 1][k] = P1[i - 1][k] + (2 * i + 1) * P[i][k];
+      P2[i + 1][k] = P2[i - 1][k] + (2 * i + 1) * P1[i][k];
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const c = Math.sqrt((2 * i + 1) / 2);
+    for (let k = 0; k < m; k++) { P[i][k] *= c; P1[i][k] *= c; P2[i][k] *= c; }
+  }
+  return [P, P1, P2];
+}
+
+let _mats = null;
+function mats() {
+  if (_mats) return _mats;
+  const { x, w } = gaussLegendre(NB + 2);
+  const [P, P1, P2] = legendreTable(x);
+  const mk = () => Array.from({ length: NB }, () => new Float64Array(NB));
+  const A = mk(), B = mk(), C = mk();
+  for (let i = 0; i < NB; i++) for (let j = 0; j < NB; j++) {
+    let a = 0, b = 0, c = 0;
+    for (let k = 0; k < x.length; k++) { a += w[k] * P2[i][k] * P2[j][k]; b += w[k] * P2[i][k] * P[j][k]; c += w[k] * P1[i][k] * P1[j][k]; }
+    A[i][j] = a; B[i][j] = b; C[i][j] = c;
+  }
+  return (_mats = { A, B, C });
+}
+
+// --- autovalores/autovetores simétricos (tred2 + tql2, EISPACK/JAMA) ---
+function tred2(V, d, e, n) {
+  let i, j, k, f, g, h, hh, scale;
+  for (j = 0; j < n; j++) d[j] = V[n - 1][j];
+  for (i = n - 1; i > 0; i--) {
+    scale = 0; h = 0;
+    for (k = 0; k < i; k++) scale += Math.abs(d[k]);
+    if (scale === 0) {
+      e[i] = d[i - 1];
+      for (j = 0; j < i; j++) { d[j] = V[i - 1][j]; V[i][j] = 0; V[j][i] = 0; }
+    } else {
+      for (k = 0; k < i; k++) { d[k] /= scale; h += d[k] * d[k]; }
+      f = d[i - 1]; g = Math.sqrt(h); if (f > 0) g = -g;
+      e[i] = scale * g; h -= f * g; d[i - 1] = f - g;
+      for (j = 0; j < i; j++) e[j] = 0;
+      for (j = 0; j < i; j++) {
+        f = d[j]; V[j][i] = f; g = e[j] + V[j][j] * f;
+        for (k = j + 1; k <= i - 1; k++) { g += V[k][j] * d[k]; e[k] += V[k][j] * f; }
+        e[j] = g;
+      }
+      f = 0;
+      for (j = 0; j < i; j++) { e[j] /= h; f += e[j] * d[j]; }
+      hh = f / (h + h);
+      for (j = 0; j < i; j++) e[j] -= hh * d[j];
+      for (j = 0; j < i; j++) {
+        f = d[j]; g = e[j];
+        for (k = j; k <= i - 1; k++) V[k][j] -= (f * e[k] + g * d[k]);
+        d[j] = V[i - 1][j]; V[i][j] = 0;
+      }
+    }
+    d[i] = h;
+  }
+  for (i = 0; i < n - 1; i++) {
+    V[n - 1][i] = V[i][i]; V[i][i] = 1; h = d[i + 1];
+    if (h !== 0) {
+      for (k = 0; k <= i; k++) d[k] = V[k][i + 1] / h;
+      for (j = 0; j <= i; j++) {
+        g = 0; for (k = 0; k <= i; k++) g += V[k][i + 1] * V[k][j];
+        for (k = 0; k <= i; k++) V[k][j] -= g * d[k];
+      }
+    }
+    for (k = 0; k <= i; k++) V[k][i + 1] = 0;
+  }
+  for (j = 0; j < n; j++) { d[j] = V[n - 1][j]; V[n - 1][j] = 0; }
+  V[n - 1][n - 1] = 1; e[0] = 0;
+}
+function tql2(V, d, e, n) {
+  let i, k, l, m, g, p, r, h, c, c2, c3, s, s2, dl1, el1;
+  for (i = 1; i < n; i++) e[i - 1] = e[i];
+  e[n - 1] = 0;
+  let f = 0, tst1 = 0; const eps = Math.pow(2, -52);
+  for (l = 0; l < n; l++) {
+    tst1 = Math.max(tst1, Math.abs(d[l]) + Math.abs(e[l]));
+    m = l; while (m < n) { if (Math.abs(e[m]) <= eps * tst1) break; m++; }
+    if (m > l) {
+      let iter = 0;
+      do {
+        iter++;
+        g = d[l]; p = (d[l + 1] - g) / (2 * e[l]); r = Math.hypot(p, 1); if (p < 0) r = -r;
+        d[l] = e[l] / (p + r); d[l + 1] = e[l] * (p + r); dl1 = d[l + 1]; h = g - d[l];
+        for (i = l + 2; i < n; i++) d[i] -= h;
+        f += h;
+        p = d[m]; c = 1; c2 = c; c3 = c; el1 = e[l + 1]; s = 0; s2 = 0;
+        for (i = m - 1; i >= l; i--) {
+          c3 = c2; c2 = c; s2 = s;
+          g = c * e[i]; h = c * p; r = Math.hypot(p, e[i]);
+          e[i + 1] = s * r; s = e[i] / r; c = p / r; p = c * d[i] - s * g;
+          d[i + 1] = h + s * (c * g + s * d[i]);
+          for (k = 0; k < n; k++) { const Vk = V[k]; h = Vk[i + 1]; Vk[i + 1] = s * Vk[i] + c * h; Vk[i] = c * Vk[i] - s * h; }
+        }
+        p = -s * s2 * c3 * el1 * e[l] / dl1; e[l] = s * p; d[l] = c * p;
+      } while (Math.abs(e[l]) > eps * tst1 && iter < 200);
+    }
+    d[l] = d[l] + f; e[l] = 0;
+  }
+}
+
+// Bloco de paridade (px,py): resolve K v = λ v. eps = anisotropia (alonga x, encurta y)
+function solveBlock(px, py, nu, eps) {
+  const { A, B, C } = mats();
+  const ix = [], iy = [];
+  for (let i = px; i < NB; i += 2) ix.push(i);
+  for (let j = py; j < NB; j += 2) iy.push(j);
+  const nx = ix.length, ny = iy.length, n = nx * ny;
+  const ax = Math.pow(1 + eps, -2), ay = Math.pow(1 - eps, -2);
+  const K = Array.from({ length: n }, () => new Float64Array(n));
+  for (let a = 0; a < nx; a++) for (let b = 0; b < ny; b++) {
+    const row = K[a * ny + b], i = ix[a], j = iy[b];
+    for (let c = 0; c < nx; c++) for (let d = 0; d < ny; d++) {
+      const k = ix[c], l = iy[d];
+      let v = ax * ay * (nu * (B[i][k] * B[l][j] + B[k][i] * B[j][l]) + 2 * (1 - nu) * C[i][k] * C[j][l]);
+      if (j === l) v += ax * ax * A[i][k];
+      if (i === k) v += ay * ay * A[j][l];
+      row[c * ny + d] = v;
+    }
+  }
+  const d = new Float64Array(n), e = new Float64Array(n);
+  tred2(K, d, e, n); tql2(K, d, e, n);
+  // K agora guarda autovetores nas colunas. Reempacota por modo: vec[m][a*ny+b]
+  const vec = [];
+  for (let m = 0; m < n; m++) { const v = new Float64Array(n); for (let q = 0; q < n; q++) v[q] = K[q][m]; vec.push(v); }
+  return { ix, iy, nx, ny, n, lam: d, vec };
+}
+
+function solvePlate(nu, eps) {
+  return [solveBlock(0, 0, nu, eps), solveBlock(0, 1, nu, eps), solveBlock(1, 0, nu, eps), solveBlock(1, 1, nu, eps)];
+}
+
+// Coeficientes de acoplamento de cada modo com força pontual em (x0,y0) (unidades de meia-aresta)
+function coupling(blocks, x0, y0) {
+  const [Px] = legendreTable([x0]), [Py] = legendreTable([y0]);
+  return blocks.map(b => {
+    const c = new Float64Array(b.n);
+    for (let m = 0; m < b.n; m++) {
+      const v = b.vec[m]; let s = 0;
+      for (let a = 0; a < b.nx; a++) { const pa = Px[b.ix[a]][0]; for (let q = 0; q < b.ny; q++) s += v[a * b.ny + q] * pa * Py[b.iy[q]][0]; }
+      c[m] = s;
+    }
+    return c;
+  });
+}
+
+// Coeficientes de Legendre (NB x NB, parte real e imaginária) da resposta forçada em λ = s², perda eta
+function responseCoeffs(blocks, cpl, s, eta) {
+  const Wr = new Float64Array(NB * NB), Wi = new Float64Array(NB * NB);
+  const L = s * s; let energy = 0;
+  blocks.forEach((b, bi) => {
+    const c = cpl[bi];
+    for (let m = 0; m < b.n; m++) {
+      const dr = b.lam[m] - L, di = L * eta, den = dr * dr + di * di;
+      const ar = c[m] * dr / den, ai = -c[m] * di / den;
+      energy += ar * ar + ai * ai;
+      const v = b.vec[m];
+      for (let a = 0; a < b.nx; a++) { const base = b.ix[a] * NB; for (let q = 0; q < b.ny; q++) { const val = v[a * b.ny + q]; Wr[base + b.iy[q]] += ar * val; Wi[base + b.iy[q]] += ai * val; } }
+    }
+  });
+  return { Wr, Wi, energy };
+}
+function modalEnergy(blocks, cpl, s, eta) {
+  const L = s * s; let energy = 0;
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi], c = cpl[bi];
+    for (let m = 0; m < b.n; m++) { const dr = b.lam[m] - L, di = L * eta; energy += c[m] * c[m] / (dr * dr + di * di); }
+  }
+  return energy;
+}
+
+// Resposta com deslocamento imposto no excitador: energia modal / |G(x0,x0)|². Picos = ressonâncias da placa presa ao excitador
+function driveResponse(blocks, cpl, s, eta) {
+  const L = s * s; let energy = 0, gr = 0, gi = 0;
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi], c = cpl[bi];
+    for (let m = 0; m < b.n; m++) { const dr = b.lam[m] - L, di = L * eta, den = dr * dr + di * di, c2 = c[m] * c[m]; energy += c2 / den; gr += c2 * dr / den; gi -= c2 * di / den; }
+  }
+  return energy / (gr * gr + gi * gi);
+}
+
+// Amplitude |w| numa grade G x G (linha = y, coluna = x), normalizada pelo RMS
+let _grid = null;
+function gridTable(G) {
+  if (_grid && _grid.G === G) return _grid;
+  const xs = new Float64Array(G); for (let k = 0; k < G; k++) xs[k] = -1 + 2 * k / (G - 1);
+  const [P] = legendreTable(xs);
+  return (_grid = { G, P });
+}
+function amplitudeGrid(coef, G, out) {
+  const { P } = gridTable(G);
+  const A = out || new Float32Array(G * G);
+  const tr = new Float64Array(NB * G), ti = new Float64Array(NB * G);   // T[i][y] = Σ_j W[i][j] P_j(y)
+  for (let i = 0; i < NB; i++) for (let j = 0; j < NB; j++) {
+    const wr = coef.Wr[i * NB + j], wi = coef.Wi[i * NB + j]; if (wr === 0 && wi === 0) continue;
+    const Pj = P[j], o = i * G;
+    for (let y = 0; y < G; y++) { tr[o + y] += wr * Pj[y]; ti[o + y] += wi * Pj[y]; }
+  }
+  let sum = 0;
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    let re = 0, im = 0;
+    for (let i = 0; i < NB; i++) { const p = P[i][x]; re += p * tr[i * G + y]; im += p * ti[i * G + y]; }
+    const a2 = re * re + im * im; A[y * G + x] = Math.sqrt(a2); sum += a2;
+  }
+  const rms = Math.sqrt(sum / (G * G)) || 1;
+  for (let k = 0; k < G * G; k++) A[k] /= rms;
+  return A;
+}
+
+// Constante de calibração: f [Hz] = Cf * s, com s = sqrt(λ) adimensional (meia-aresta a)
+function freqConstant(side_m, thick_m, E, rho, nu) {
+  const a = side_m / 2;
+  return thick_m / (2 * Math.PI * a * a) * Math.sqrt(E / (12 * rho * (1 - nu * nu)));
+}
+
+
+// ===== Areia: grãos saltam com passo proporcional à amplitude local e param onde a placa quase não vibra =====
+function makeSand(n) {
+  const x = new Float32Array(n), y = new Float32Array(n);
+  for (let i = 0; i < n; i++) { x[i] = Math.random(); y[i] = Math.random(); }
+  return { n, x, y };
+}
+// A: amplitude normalizada (G x G); level: ganho de amplitude; thr: limiar abaixo do qual o grão não se move
+function stepSand(sand, A, G, level, thr, sigma, drift) {
+  const { n, x, y } = sand, g1 = G - 1;
+  let moving = 0;
+  for (let p = 0; p < n; p++) {
+    let px = x[p], py = y[p];
+    const fx = px * g1, fy = py * g1;
+    let ix = fx | 0, iy = fy | 0; if (ix > G - 2) ix = G - 2; if (iy > G - 2) iy = G - 2;
+    const tx = fx - ix, ty = fy - iy, o = iy * G + ix;
+    const a00 = A[o], a10 = A[o + 1], a01 = A[o + G], a11 = A[o + G + 1];
+    const a = (a00 * (1 - tx) + a10 * tx) * (1 - ty) + (a01 * (1 - tx) + a11 * tx) * ty;
+    let k = a * level; if (k <= thr) continue;
+    moving++;
+    if (k > 2.5) k = 2.5;
+    const gx = ((a10 - a00) * (1 - ty) + (a11 - a01) * ty) * g1, gy = ((a01 - a00) * (1 - tx) + (a11 - a10) * tx) * g1;
+    const gn = Math.sqrt(gx * gx + gy * gy) + 1e-6;
+    const s = sigma * (k - thr * 0.5), d = drift * (k - thr * 0.5);
+    px += s * (Math.random() + Math.random() - 1) - d * gx / gn;
+    py += s * (Math.random() + Math.random() - 1) - d * gy / gn;
+    if (px < 0) px = -px; else if (px > 1) px = 2 - px;
+    if (py < 0) py = -py; else if (py > 1) py = 2 - py;
+    x[p] = px; y[p] = py;
+  }
+  return moving;
+}
+
+</script>
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+const THR = 0.2, G = 256, R = 680, FMIN = 100, FMAX = 7000;
+const MATERIALS = { al:{E:69,rho:2700,nu:0.33}, steel:{E:200,rho:7850,nu:0.29}, brass:{E:100,rho:8500,nu:0.34}, glass:{E:70,rho:2500,nu:0.22} };
+const REFS = [345,1033,1820,2041,3975,4049,4221,5201,5907];
+const OTHERS = [3240,3835,4129,4173,4280,4444,4671,4840,5284,6051];
+
+const st = { f:2041, running:true, view:'sand', blocks:null, cpl:null, Cf:14.21, solvedNu:null, solvedEps:null,
+  A:new Float32Array(G*G), sand:null, level:1, spec:null, peaks:[], Eref:1, Enow:1, moving:0 };
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const num = id => { const v = parseFloat($(id).value); return isFinite(v) ? v : 0; };
+const params = () => ({ side:num('side')/100, thick:num('thick')/1000, E:num('E')*1e9, rho:num('rho'), nu:Math.min(0.49,Math.max(0.05,num('nu'))),
+  eta:Math.max(0.0002,num('eta')/100), eps:num('eps')/100, x0:num('offx')/1000/(num('side')/200), y0:num('offy')/1000/(num('side')/200) });
+
+function resolve(){
+  const p = params();
+  if (st.solvedNu !== p.nu || st.solvedEps !== p.eps){
+    st.blocks = solvePlate(p.nu, p.eps); st.solvedNu = p.nu; st.solvedEps = p.eps;
+  }
+  st.Cf = freqConstant(p.side, p.thick, p.E, p.rho, p.nu);
+  st.cpl = coupling(st.blocks, Math.max(-0.95,Math.min(0.95,p.x0)), Math.max(-0.95,Math.min(0.95,p.y0)));
+  computeSpectrum(); updateField();
+  $('status').textContent = '';
+}
+let pending = null;
+function scheduleResolve(){
+  $('status').textContent = 'recalculando modos…';
+  clearTimeout(pending); pending = setTimeout(resolve, 60);
+}
+
+function computeSpectrum(){
+  const p = params(), n = 2400, e = new Float32Array(n);
+  let lo = Infinity, hi = -Infinity;
+  for (let i=0;i<n;i++){ const f = FMIN + (FMAX-FMIN)*i/(n-1); const v = Math.log10(driveResponse(st.blocks, st.cpl, f/st.Cf, p.eta)); e[i]=v; if(v<lo)lo=v; if(v>hi)hi=v; }
+  const peaks = [];
+  for (let i=1;i<n-1;i++) if (e[i]>e[i-1] && e[i]>=e[i+1]) peaks.push({ f:FMIN + (FMAX-FMIN)*i/(n-1), e:e[i] });
+  const sorted = peaks.map(k=>k.e).sort((a,b)=>a-b);
+  st.Eref = sorted.length ? Math.pow(10, sorted[Math.floor(sorted.length*0.5)]) : 1;
+  st.spec = { e, lo, hi, n }; st.peaks = peaks;
+  drawSpectrum();
+}
+
+function updateField(){
+  const p = params();
+  const coef = responseCoeffs(st.blocks, st.cpl, st.f/st.Cf, p.eta);
+  amplitudeGrid(coef, G, st.A);
+  st.Enow = driveResponse(st.blocks, st.cpl, st.f/st.Cf, p.eta);
+  const vol = num('volume');
+  st.level = $('autogain').checked ? vol : vol * Math.min(3, Math.sqrt(st.Enow / st.Eref));
+  const k = Math.sqrt(st.f/st.Cf) / (p.side/2);
+  $('rdF').textContent = st.f.toFixed(st.f%1?1:0) + ' Hz';
+  $('rdL').textContent = (2*Math.PI/k*100).toFixed(1) + ' cm';
+  $('rdE').textContent = (10*Math.log10(st.Enow/st.Eref)).toFixed(0) + ' dB';
+  drawSpectrum();
+  if (st.view === 'nodal' || !st.running) render();
+}
+
+function setFreq(f, from){
+  f = Math.min(FMAX, Math.max(FMIN, f)); if (!isFinite(f)) return;
+  st.f = f;
+  if (from !== 'num') $('freq').value = Math.round(f*10)/10;
+  if (from !== 'range') $('freqRange').value = f;
+  updateField();
+}
+
+// ---------- desenho ----------
+const pc = $('plate'), pctx = pc.getContext('2d'), img = pctx.createImageData(R, R), acc = new Float32Array(R*R);
+const off = document.createElement('canvas'); off.width = G; off.height = G; const octx = off.getContext('2d'), oimg = octx.createImageData(G, G);
+function rgb(hex){ const h = hex.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function render(){
+  const P = rgb(css('--plate')||'#0b0c0e'), S = rgb(css('--sand')||'#efe6d0');
+  if (st.view === 'nodal'){
+    const d = oimg.data;
+    for (let k=0;k<G*G;k++){ const a = st.A[k]/0.16, v = Math.exp(-a*a); d[4*k]=P[0]+(S[0]-P[0])*v; d[4*k+1]=P[1]+(S[1]-P[1])*v; d[4*k+2]=P[2]+(S[2]-P[2])*v; d[4*k+3]=255; }
+    octx.putImageData(oimg,0,0); pctx.imageSmoothingEnabled = true; pctx.imageSmoothingQuality = 'high'; pctx.drawImage(off,0,0,R,R);
+  } else {
+    acc.fill(0);
+    const s = st.sand, n = s.n, x = s.x, y = s.y;
+    for (let p=0;p<n;p++){
+      const fx = x[p]*(R-1), fy = y[p]*(R-1), ix = fx|0, iy = fy|0, tx = fx-ix, ty = fy-iy, o = iy*R+ix;
+      acc[o] += (1-tx)*(1-ty); if (ix<R-1) acc[o+1] += tx*(1-ty);
+      if (iy<R-1){ acc[o+R] += (1-tx)*ty; if (ix<R-1) acc[o+R+1] += tx*ty; }
+    }
+    const d = img.data, c = 0.9 * 70000/n * (R*R)/(680*680) + 0.25;
+    for (let k=0;k<R*R;k++){ const v = 1-Math.exp(-c*acc[k]); d[4*k]=P[0]+(S[0]-P[0])*v; d[4*k+1]=P[1]+(S[1]-P[1])*v; d[4*k+2]=P[2]+(S[2]-P[2])*v; d[4*k+3]=255; }
+    pctx.putImageData(img,0,0);
+  }
+  // parafuso do excitador
+  const p = params(), bx = (0.5+p.x0/2)*R, by = (0.5+p.y0/2)*R;
+  pctx.beginPath(); pctx.arc(bx,by,4.5,0,6.283); pctx.fillStyle='#9aa0a6'; pctx.fill(); pctx.lineWidth=1; pctx.strokeStyle='#3b3f44'; pctx.stroke();
+}
+
+const sc = $('spec'), sctx = sc.getContext('2d');
+function drawSpectrum(){
+  if (!st.spec) return;
+  const W = sc.width, H = sc.height, { e, lo, hi, n } = st.spec, padB = 34, padT = 8;
+  const X = f => (f-FMIN)/(FMAX-FMIN)*W, Y = v => padT + (1-(v-lo)/(hi-lo||1))*(H-padB-padT);
+  sctx.clearRect(0,0,W,H);
+  sctx.font = '22px "IBM Plex Mono", monospace'; sctx.textAlign = 'center'; sctx.textBaseline = 'alphabetic';
+  sctx.strokeStyle = css('--line'); sctx.fillStyle = css('--muted'); sctx.lineWidth = 1;
+  for (let f=1000; f<FMAX; f+=1000){ sctx.beginPath(); sctx.moveTo(X(f),padT); sctx.lineTo(X(f),H-padB); sctx.stroke(); sctx.fillText((f/1000)+' kHz', X(f), H-8); }
+  sctx.beginPath(); for (let i=0;i<n;i++){ const x = i/(n-1)*W, y = Y(e[i]); i?sctx.lineTo(x,y):sctx.moveTo(x,y); }
+  sctx.strokeStyle = css('--ink'); sctx.lineWidth = 1.6; sctx.stroke();
+  sctx.fillStyle = css('--accent');
+  for (const f of REFS){ sctx.beginPath(); sctx.moveTo(X(f),H-padB+2); sctx.lineTo(X(f)-6,H-padB+12); sctx.lineTo(X(f)+6,H-padB+12); sctx.fill(); }
+  sctx.strokeStyle = css('--accent'); sctx.lineWidth = 3; sctx.beginPath(); sctx.moveTo(X(st.f),padT); sctx.lineTo(X(st.f),H-padB); sctx.stroke();
+}
+function specPick(ev){ const r = sc.getBoundingClientRect(); setFreq(Math.round(FMIN + (ev.clientX-r.left)/r.width*(FMAX-FMIN))); }
+let dragging = false;
+sc.addEventListener('pointerdown', ev => { dragging = true; sc.setPointerCapture(ev.pointerId); specPick(ev); });
+sc.addEventListener('pointermove', ev => { if (dragging) specPick(ev); });
+sc.addEventListener('pointerup', () => dragging = false);
+sc.addEventListener('pointercancel', () => dragging = false);
+
+function refinePeak(f){
+  const p = params(); let best = f, bv = -Infinity;
+  for (let d=-4; d<=4; d+=0.25){ const v = driveResponse(st.blocks, st.cpl, (f+d)/st.Cf, p.eta); if (v>bv){ bv=v; best=f+d; } }
+  return Math.round(best*10)/10;
+}
+function jumpPeak(dir){
+  const c = st.peaks.map(k=>k.f); let t = null;
+  if (dir>0) t = c.find(f => f > st.f + 3); else for (let i=c.length-1;i>=0;i--) if (c[i] < st.f - 3){ t = c[i]; break; }
+  if (t != null) setFreq(refinePeak(t));
+}
+
+// ---------- laço ----------
+function simulate(steps){ let m = 0; for (let i=0;i<steps;i++) m = stepSand(st.sand, st.A, G, st.level, THR, 0.012, 0.0009); st.moving = m; }
+let last = 0;
+function frame(t){
+  if (st.running && st.view === 'sand'){
+    simulate(2); render();
+    if (t - last > 300){ last = t; $('rdM').textContent = Math.round(100*st.moving/st.sand.n) + ' %'; }
+  }
+  musicTick();
+  requestAnimationFrame(frame);
+}
+
+// ---------- controles ----------
+function chips(el, list, cls){ for (const f of list){ const b = document.createElement('button'); b.className = 'chip '+cls; b.textContent = f; b.addEventListener('click', () => setFreq(f)); el.appendChild(b); } }
+chips($('refs'), REFS, 'ref'); chips($('others'), OTHERS, '');
+$('freq').addEventListener('input', () => setFreq(parseFloat($('freq').value), 'num'));
+$('freqRange').addEventListener('input', () => setFreq(parseFloat($('freqRange').value), 'range'));
+document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click', () => setFreq(st.f + parseFloat(b.dataset.nudge))));
+$('prevPeak').addEventListener('click', () => jumpPeak(-1)); $('nextPeak').addEventListener('click', () => jumpPeak(1));
+$('scatter').addEventListener('click', () => { st.sand = makeSand(num('grains')); if (!st.running) render(); });
+$('pause').addEventListener('click', () => { st.running = !st.running; $('pause').setAttribute('aria-pressed', String(!st.running)); $('pause').textContent = st.running ? 'Pausar' : 'Continuar'; });
+function outs(){ $('oGrains').textContent = (num('grains')/1000).toFixed(0)+' mil'; $('oVolume').textContent = num('volume').toFixed(2)+'×'; }
+$('grains').addEventListener('input', () => { outs(); st.sand = makeSand(num('grains')); if (!st.running) render(); });
+$('volume').addEventListener('input', () => { outs(); updateField(); });
+$('autogain').addEventListener('change', updateField);
+function setView(v){ st.view = v; $('vSand').setAttribute('aria-pressed', String(v==='sand')); $('vNodal').setAttribute('aria-pressed', String(v==='nodal')); render(); }
+$('vSand').addEventListener('click', () => setView('sand')); $('vNodal').addEventListener('click', () => setView('nodal'));
+$('material').addEventListener('change', () => { const m = MATERIALS[$('material').value]; if (m){ $('E').value = m.E; $('rho').value = m.rho; $('nu').value = m.nu; scheduleResolve(); } });
+['side','thick','E','rho','nu','eta','eps','offx','offy'].forEach(id => $(id).addEventListener('change', () => { if (['E','rho','nu'].includes(id)){ const m = MATERIALS[$('material').value]; if (!m || m.E!==num('E') || m.rho!==num('rho') || m.nu!==num('nu')) $('material').value = 'custom'; } scheduleResolve(); }));
+
+// ---------- música ----------
+const NF = 4096, LOGN = 12, MF0 = 100, MF1 = 7000, NROW = 110;
+const BANDS = [['Tudo (100–7000 Hz)',100,7000],['Graves (100–500 Hz)',100,500],['Médios (500–2000 Hz)',500,2000],['Agudos (2000–7000 Hz)',2000,7000]];
+const mu = { ctx:null, buf:null, src:null, playing:false, t0:0, off:0, dur:0, nF:0, dom:[], lev:[], maxLev:[], base:null, band:0, hover:null, lastF:0, top:[], job:0 };
+const fftRev = new Uint16Array(NF), fftC = new Float64Array(NF/2), fftS = new Float64Array(NF/2), hann = new Float32Array(NF);
+for (let i=0;i<NF;i++){ let r=0; for (let b=0;b<LOGN;b++) r |= ((i>>b)&1) << (LOGN-1-b); fftRev[i]=r; hann[i]=0.5-0.5*Math.cos(2*Math.PI*i/(NF-1)); }
+for (let k=0;k<NF/2;k++){ fftC[k]=Math.cos(2*Math.PI*k/NF); fftS[k]=Math.sin(2*Math.PI*k/NF); }
+function fft(re, im){
+  for (let i=0;i<NF;i++){ const j=fftRev[i]; if (j>i){ let t=re[i]; re[i]=re[j]; re[j]=t; t=im[i]; im[i]=im[j]; im[j]=t; } }
+  for (let size=2; size<=NF; size<<=1){
+    const half=size>>1, step=NF/size;
+    for (let i=0;i<NF;i+=size) for (let j=0,k=0;j<half;j++,k+=step){
+      const a=i+j, b=a+half, xr=re[b], xi=im[b], tr=xr*fftC[k]+xi*fftS[k], ti=xi*fftC[k]-xr*fftS[k];
+      re[b]=re[a]-tr; im[b]=im[a]-ti; re[a]+=tr; im[a]+=ti;
+    }
+  }
+}
+const fmtT = t => { const m=Math.floor(t/60), s=t-60*m; return m+':'+(s<10?'0':'')+s.toFixed(1).replace('.',','); };
+const fmtF = f => Math.round(f)+' Hz';
+const muY = (f,H) => H*(1-Math.log(f/MF0)/Math.log(MF1/MF0));
+
+function loadMusic(file){
+  if (!file) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC){ $('muStatus').textContent = 'Este navegador não decodifica áudio.'; return; }
+  stopMusic(); mu.off = 0;
+  $('muStatus').textContent = 'lendo o arquivo…';
+  if (!mu.ctx) mu.ctx = new AC();
+  file.arrayBuffer().then(ab => mu.ctx.decodeAudioData(ab)).then(buf => analyze(buf, file.name))
+    .catch(() => { $('muStatus').textContent = 'Não consegui ler este arquivo. Tente MP3, WAV, OGG ou M4A.'; });
+}
+function analyze(buf, name){
+  const job = ++mu.job, n = buf.length, sr = buf.sampleRate, nc = buf.numberOfChannels;
+  const mono = new Float32Array(n);
+  for (let c=0;c<nc;c++){ const d = buf.getChannelData(c); for (let i=0;i<n;i++) mono[i] += d[i]/nc; }
+  const dur = buf.duration, nF = Math.max(40, Math.min(2400, Math.round(dur*20)));
+  const kTop = Math.min(NF/2-2, Math.floor(MF1*NF/sr));
+  const bandK = BANDS.map(([,a,b]) => [Math.max(2, Math.ceil(a*NF/sr)), Math.min(kTop, Math.floor(b*NF/sr))]);
+  const rowK = []; for (let r=0;r<NROW;r++){ const fa = MF0*Math.pow(MF1/MF0, r/NROW), fb = MF0*Math.pow(MF1/MF0, (r+1)/NROW); rowK.push([Math.min(kTop, Math.floor(fa*NF/sr)), Math.min(kTop, Math.ceil(fb*NF/sr))]); }
+  const dom = BANDS.map(() => new Float32Array(nF)), lev = BANDS.map(() => new Float32Array(nF)), spec = new Float32Array(nF*NROW);
+  const re = new Float64Array(NF), im = new Float64Array(NF), mag = new Float32Array(NF/2);
+  let i = 0;
+  (function chunk(){
+    if (job !== mu.job) return;
+    const end = Math.min(nF, i+60);
+    for (; i<end; i++){
+      const start = Math.round((i+0.5)*n/nF) - NF/2;
+      for (let j=0;j<NF;j++){ const q = start+j; re[j] = (q>=0 && q<n) ? mono[q]*hann[j] : 0; im[j] = 0; }
+      fft(re, im);
+      for (let k=1;k<=kTop+1;k++) mag[k] = Math.sqrt(re[k]*re[k]+im[k]*im[k]);
+      for (let b=0;b<BANDS.length;b++){
+        let best = bandK[b][0], bv = -1;
+        for (let k=bandK[b][0]; k<=bandK[b][1]; k++) if (mag[k]>bv){ bv = mag[k]; best = k; }
+        let d = 0; const a = mag[best-1], c = mag[best+1];
+        if (bv>0 && a>0 && c>0){ const la=Math.log(a), lb=Math.log(bv), lc=Math.log(c), den=la-2*lb+lc; if (den<0) d = Math.max(-0.5, Math.min(0.5, 0.5*(la-lc)/den)); }
+        dom[b][i] = (best+d)*sr/NF; lev[b][i] = bv;
+      }
+      for (let r=0;r<NROW;r++){ let v = 0; for (let k=rowK[r][0]; k<=rowK[r][1]; k++) if (mag[k]>v) v = mag[k]; spec[i*NROW+r] = v; }
+    }
+    if (i<nF){ $('muStatus').textContent = 'analisando… '+Math.round(100*i/nF)+' %'; setTimeout(chunk, 0); return; }
+    Object.assign(mu, { buf, dur, nF, dom, lev, maxLev: lev.map(l => l.reduce((m,v) => Math.max(m,v), 1e-12)), off:0, hover:null });
+    buildBase(spec); computeTop();
+    $('muStatus').textContent = name+' · '+fmtT(dur);
+    $('muEmpty').hidden = true; $('muLoaded').hidden = false; $('muGallery').innerHTML = '';
+    drawMusic();
+  })();
+}
+function buildBase(spec){
+  const c = document.createElement('canvas'); c.width = mu.nF; c.height = NROW;
+  const x = c.getContext('2d'), id = x.createImageData(mu.nF, NROW), d = id.data, P = rgb(css('--plate')||'#0b0c0e'), S = rgb(css('--sand')||'#efe6d0');
+  let mx = 1e-12; for (let k=0;k<spec.length;k++) if (spec[k]>mx) mx = spec[k];
+  for (let i=0;i<mu.nF;i++) for (let r=0;r<NROW;r++){
+    let v = (20*Math.log10(spec[i*NROW+r]/mx + 1e-9) + 70)/70; v = v<0 ? 0 : v>1 ? 1 : v; v = v*v*0.75;
+    const o = 4*((NROW-1-r)*mu.nF + i); d[o]=P[0]+(S[0]-P[0])*v; d[o+1]=P[1]+(S[1]-P[1])*v; d[o+2]=P[2]+(S[2]-P[2])*v; d[o+3]=255;
+  }
+  x.putImageData(id, 0, 0); mu.base = c;
+}
+const audible = (b,i) => mu.lev[b][i] > 0.004*mu.maxLev[b];
+function computeTop(){
+  const b = mu.band, NB_ = 160, w = new Float64Array(NB_), fw = new Float64Array(NB_), cnt = new Float64Array(NB_), L = Math.log(MF1/MF0);
+  let tot = 0;
+  for (let i=0;i<mu.nF;i++) if (audible(b,i)){ const k = Math.min(NB_-1, Math.max(0, Math.floor(Math.log(mu.dom[b][i]/MF0)/L*NB_))); w[k] += mu.lev[b][i]; fw[k] += mu.lev[b][i]*mu.dom[b][i]; cnt[k]++; tot++; }
+  const order = Array.from(w.keys()).filter(k => w[k]>0).sort((p,q) => cnt[q]-cnt[p]), taken = [], top = [];
+  for (const k of order){ if (taken.some(t => Math.abs(t-k)<=1)) continue; taken.push(k); top.push({ f: fw[k]/w[k], share: ((cnt[k-1]||0)+cnt[k]+(cnt[k+1]||0))/Math.max(1,tot) }); if (top.length===8) break; }
+  mu.top = top;
+  const el = $('muTop'); el.innerHTML = '';
+  if (!top.length) el.textContent = 'Nenhuma frequência audível nesta faixa.';
+  for (const t of top){ const bt = document.createElement('button'); bt.className = 'chip ref'; bt.textContent = fmtF(t.f)+' · '+Math.round(100*t.share)+' %'; bt.title = 'Dominante em '+Math.round(100*t.share)+' % do tempo'; bt.addEventListener('click', () => setFreq(Math.round(t.f))); el.appendChild(bt); }
+}
+const muCv = $('muCv'), muX = muCv.getContext('2d');
+function drawMusic(){
+  if (!mu.base) return;
+  const W = muCv.width, H = muCv.height, b = mu.band;
+  muX.imageSmoothingEnabled = true; muX.drawImage(mu.base, 0, 0, W, H);
+  muX.font = '20px "IBM Plex Mono", monospace'; muX.textBaseline = 'middle'; muX.textAlign = 'left';
+  for (const f of [200,500,1000,2000,5000]){ const y = muY(f,H); muX.fillStyle = 'rgba(255,255,255,.16)'; muX.fillRect(0,y,W,1); muX.fillStyle = 'rgba(255,255,255,.6)'; muX.fillText(f>=1000 ? (f/1000)+' kHz' : f+' Hz', 6, y-12); }
+  muX.fillStyle = css('--accent');
+  const dx = Math.max(2, W/mu.nF);
+  for (let i=0;i<mu.nF;i++) if (audible(b,i)) muX.fillRect(i/mu.nF*W, muY(mu.dom[b][i],H)-2, dx, 4);
+  const xp = musicTime()/mu.dur*W; muX.fillStyle = '#ffffff'; muX.fillRect(xp-1, 0, 2, H);
+  if (mu.hover != null){ const xh = mu.hover/mu.dur*W; muX.fillStyle = 'rgba(255,255,255,.55)'; muX.fillRect(xh, 0, 1, H); }
+  $('muTime').textContent = fmtT(musicTime())+' / '+fmtT(mu.dur);
+}
+const frameAt = t => Math.max(0, Math.min(mu.nF-1, Math.floor(t/mu.dur*mu.nF)));
+const musicTime = () => mu.playing ? Math.min(mu.dur, mu.off + mu.ctx.currentTime - mu.t0) : mu.off;
+function playMusic(){
+  if (!mu.buf || mu.playing) return;
+  if (mu.off >= mu.dur-0.05) mu.off = 0;
+  const p = mu.ctx.resume(); if (p && p.catch) p.catch(() => {});
+  const s = mu.ctx.createBufferSource(); s.buffer = mu.buf; s.connect(mu.ctx.destination);
+  s.onended = () => { if (mu.src === s){ mu.off = musicTime(); mu.playing = false; mu.src = null; $('muPlay').textContent = 'Tocar'; drawMusic(); } };
+  s.start(0, mu.off); mu.src = s; mu.t0 = mu.ctx.currentTime; mu.playing = true; $('muPlay').textContent = 'Pausar';
+}
+function stopMusic(){
+  if (!mu.playing) return;
+  mu.off = musicTime(); const s = mu.src; mu.src = null; mu.playing = false;
+  try { s.onended = null; s.stop(); } catch(e){}
+  $('muPlay').textContent = 'Tocar';
+}
+function seekMusic(t){ const was = mu.playing; stopMusic(); mu.off = Math.max(0, Math.min(mu.dur-0.01, t)); if (was) playMusic(); }
+function musicTick(){
+  if (!mu.buf || !mu.playing) return;
+  const i = frameAt(musicTime());
+  if ($('muFollow').checked && audible(mu.band,i)){ const f = Math.round(mu.dom[mu.band][i]); if (Math.abs(f-mu.lastF) > 0.004*f){ mu.lastF = f; setFreq(f); } }
+  drawMusic();
+}
+function muPointer(ev){ const r = muCv.getBoundingClientRect(); return Math.max(0, Math.min(mu.dur, (ev.clientX-r.left)/r.width*mu.dur)); }
+muCv.addEventListener('pointermove', ev => {
+  if (!mu.buf) return; const t = muPointer(ev), i = frameAt(t); mu.hover = t;
+  $('muInfo').textContent = fmtT(t)+' · frequência dominante: '+(audible(mu.band,i) ? fmtF(mu.dom[mu.band][i]) : 'silêncio nesta faixa')+' · clique para levar a música e a placa até aqui';
+  if (!mu.playing) drawMusic();
+});
+muCv.addEventListener('pointerleave', () => { mu.hover = null; if (!mu.playing) drawMusic(); });
+muCv.addEventListener('pointerdown', ev => {
+  if (!mu.buf) return; const t = muPointer(ev), i = frameAt(t); seekMusic(t);
+  if (audible(mu.band,i)){ mu.lastF = Math.round(mu.dom[mu.band][i]); setFreq(mu.lastF); }
+  drawMusic();
+});
+$('muFile').addEventListener('change', ev => loadMusic(ev.target.files[0]));
+const mbox = $('musicbox');
+mbox.addEventListener('dragover', ev => { ev.preventDefault(); mbox.classList.add('drag'); });
+mbox.addEventListener('dragleave', () => mbox.classList.remove('drag'));
+mbox.addEventListener('drop', ev => { ev.preventDefault(); mbox.classList.remove('drag'); if (ev.dataTransfer.files[0]) loadMusic(ev.dataTransfer.files[0]); });
+$('muPlay').addEventListener('click', () => mu.playing ? stopMusic() : playMusic());
+BANDS.forEach((b,k) => { const o = document.createElement('option'); o.value = k; o.textContent = b[0]; $('muBand').appendChild(o); });
+$('muBand').addEventListener('change', () => { mu.band = +$('muBand').value; computeTop(); drawMusic(); });
+
+// ---------- imagens ----------
+let dl = null;
+// Dentro do Claude usa a permissão de download; fora dele (GitHub Pages etc.) usa o download comum do navegador
+const inClaude = !!(window.claude && window.claude.use);
+if (inClaude) window.claude.use('downloads').then(d => { dl = d; if (d) $('muSaveNow').hidden = false; }).catch(() => {});
+else { dl = { save: ({ filename, data }) => new Promise(res => { const u = URL.createObjectURL(data), a = document.createElement('a'); a.href = u; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); res({ status:'saved' }); }) }; $('muSaveNow').hidden = false; }
+function savePng(canvas, name, btn){
+  if (!dl) return;
+  canvas.toBlob(blob => { if (!blob) return; dl.save({ filename: name, data: blob }).then(() => { if (btn) btn.textContent = 'Salvo'; }).catch(e => { if (btn) btn.textContent = e && e.code === 'declined' ? 'Salvar PNG' : 'Não foi possível salvar'; }); }, 'image/png');
+}
+function figureCanvas(f, size){
+  const g = 160, p = params(), A = amplitudeGrid(responseCoeffs(st.blocks, st.cpl, f/st.Cf, p.eta), g, new Float32Array(g*g));
+  const small = document.createElement('canvas'); small.width = g; small.height = g;
+  const sx = small.getContext('2d'), id = sx.createImageData(g, g), d = id.data, P = rgb(css('--plate')||'#0b0c0e'), S = rgb(css('--sand')||'#efe6d0');
+  for (let k=0;k<g*g;k++){ const a = A[k]/0.16, v = Math.exp(-a*a); d[4*k]=P[0]+(S[0]-P[0])*v; d[4*k+1]=P[1]+(S[1]-P[1])*v; d[4*k+2]=P[2]+(S[2]-P[2])*v; d[4*k+3]=255; }
+  sx.putImageData(id, 0, 0);
+  const c = document.createElement('canvas'); c.width = size; c.height = size; const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.drawImage(small, 0, 0, size, size);
+  return c;
+}
+function gallery(items){
+  const el = $('muGallery'); el.innerHTML = '';
+  if (!items.length){ el.textContent = 'Nada para gerar nesta faixa.'; return; }
+  for (const it of items){
+    const fig = document.createElement('figure'), c = figureCanvas(it.f, 480), cap = document.createElement('figcaption');
+    c.title = 'Ver esta figura na placa'; c.addEventListener('click', () => { setFreq(Math.round(it.f)); if (it.t != null){ seekMusic(it.t); drawMusic(); } });
+    cap.textContent = it.label; fig.appendChild(c); fig.appendChild(cap);
+    if (dl){ const b = document.createElement('button'); b.textContent = 'Salvar PNG'; b.addEventListener('click', () => savePng(c, 'chladni-'+Math.round(it.f)+'Hz.png', b)); fig.appendChild(b); }
+    el.appendChild(fig);
+  }
+}
+$('muGenTop').addEventListener('click', () => gallery(mu.top.map(t => ({ f:t.f, label: fmtF(t.f)+' · '+Math.round(100*t.share)+' % do tempo' }))));
+$('muGenTime').addEventListener('click', () => { const out = []; for (let k=0;k<12;k++){ const t = (k+0.5)/12*mu.dur, i = frameAt(t); if (audible(mu.band,i)) out.push({ f: mu.dom[mu.band][i], t, label: fmtT(t)+' · '+fmtF(mu.dom[mu.band][i]) }); } gallery(out); });
+$('muSaveNow').addEventListener('click', () => savePng(pc, 'chladni-'+Math.round(st.f)+'Hz.png', null));
+
+// ---------- início ----------
+outs();
+st.sand = makeSand(num('grains'));
+resolve();
+simulate(matchMedia('(prefers-reduced-motion: reduce)').matches ? 500 : 160);
+if (matchMedia('(prefers-reduced-motion: reduce)').matches){ st.running = false; $('pause').setAttribute('aria-pressed','true'); $('pause').textContent = 'Continuar'; }
+render();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
